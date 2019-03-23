@@ -8,7 +8,7 @@ class Lobby implements MessageComponentInterface {
 
     protected $clients;
     protected $clients_info;
-    protected $csgo_url = 'http://localhost/csgoclub/';
+    protected $csgo_url = 'http://csgoclub.tk/';
     protected $max_clients = 8;
 
     public function __construct() {
