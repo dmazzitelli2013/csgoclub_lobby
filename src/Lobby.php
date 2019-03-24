@@ -6,22 +6,18 @@ use \stdClass;
 
 class Lobby implements MessageComponentInterface {
 
-    protected $clients;
-    protected $clients_info;
+    protected $users;
     protected $csgo_url = 'http://csgoclub.tk/';
-    protected $max_clients = 8;
+    protected $max_clients = 16;
 
     public function __construct() {
-        $this->clients = new \SplObjectStorage;
-        $this->clients_info = array();
+        $this->users = array();
     }
 
-    public function onOpen(ConnectionInterface $conn) {
-        $this->clients->attach($conn);
-    }
+    public function onOpen(ConnectionInterface $conn) {}
 
     public function onMessage(ConnectionInterface $from, $msg) {
-        if(count($this->clients_info) > $this->max_clients) {
+        if(count($this->users) > $this->max_clients) {
             $from->send("El lobby está completo.");
             $from->close();
             return false;
@@ -41,17 +37,16 @@ class Lobby implements MessageComponentInterface {
             return false;
         }
 
-        $user->resource_id = $from->resourceId;
+        $user->connection = $from;
 
-        $this->clients_info[] = $user;
+        $this->users[] = $user;
 
-        $this->update_clients_list();
+        $this->update_users_list();
     }
 
     public function onClose(ConnectionInterface $conn) {
-        $this->clients->detach($conn);
         $this->remove_user($conn->resourceId);
-        $this->update_clients_list();
+        $this->update_users_list();
     }
 
     public function onError(ConnectionInterface $conn, \Exception $e) {
@@ -74,7 +69,7 @@ class Lobby implements MessageComponentInterface {
     }
 
     private function is_user_already_in_lobby(&$user) {
-        foreach($this->clients_info as $aUser) {
+        foreach($this->users as $aUser) {
             if($user->user_token == $aUser->user_token) {
                 return true;
             }
@@ -93,28 +88,47 @@ class Lobby implements MessageComponentInterface {
 
     private function remove_user($resource_id) {
         $the_key = null;
-        foreach($this->clients_info as $key => $user) {
-            if($user->resource_id == $resource_id) {
+        foreach($this->users as $key => $user) {
+            if($user->connection->resourceId == $resource_id) {
                 $the_key = $key;
             }
         }
 
         if(!is_null($the_key)) {
-            unset($this->clients_info[$the_key]);
+            unset($this->users[$the_key]);
         }
     }
 
-    private function update_clients_list() {
+    private function update_users_list() {
         $list = array();
-        foreach($this->clients_info as $user) {
+        $all_users = $this->users;
+
+        foreach($all_users as $user) {
             $list[] = $user->nickname;
         }
 
         $message = json_encode($list);
 
-        foreach($this->clients as $value) {
-            $client = $this->clients->current();
-            $client->send($message);
+        foreach($all_users as $user) {
+            $user->connection->send($message);
+        }
+
+        if(count($this->users) >= 4) {
+            $this->create_random_match_2vs2();
+        }
+    }
+
+    private function create_random_match_2vs2() {
+        $players = array_slice($this->users, 0, 4);
+        $user_ids = $players[0]->id . '-' . $players[1]->id . '-' . $players[2]->id . '-' . $players[3]->id;
+        
+        $match_making_url = $this->csgo_url . 'match/generate_random_2vs2_match/' . $user_ids;
+        $result = file_get_contents($match_making_url);
+        
+        $message = 'Redirect:' . $result;
+        foreach($players as $player) {
+            $player->connection->send($message);
+            $player->connection->close();
         }
     }
 
